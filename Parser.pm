@@ -1,4 +1,4 @@
-# $Id: Parser.pm,v 1.16 2004/06/28 14:07:26 olaf Exp $
+# $Id: Parser.pm,v 1.17 2004/07/21 07:52:13 olaf Exp $
 # Net::DNS::Zone::Parser
 #
 # O-O package that implements an RFC complient zone file (pre)parser.
@@ -24,8 +24,8 @@ BEGIN{
     require Net::DNS::RR;
     require Exporter;
     @ISA = qw(Exporter);
-    $VERSION = '0.001_4' ; 
-    $REVISION = sprintf "%d.%03d", q$Revision: 1.16 $ =~ /(\d+)/g;
+    $VERSION = '0.002' ; 
+    $REVISION = sprintf "%d.%03d", q$Revision: 1.17 $ =~ /(\d+)/g;
     @EXPORT_OK   = qw (
 		   processGENERATEarg
 		  );
@@ -882,7 +882,7 @@ return $_;
 
 =head1 NAME
 
-Net::DNS::Zone::Parser - A Zone Parser
+Net::DNS::Zone::Parser - A Zone Pre-Parser
 
 =head1 SYNOPSIS
 
@@ -1101,8 +1101,8 @@ See the BIND documentation.
 =head1 Related packages.
 
 There are other packages with likewise functionality; they where not
-suitable. Before you start using this module you may want to look at
-these.
+suitable for my purposes. But maybe they are suitable for you. So
+before you start using this module you may want to look at these.
 
 DNS::Zone::File will parse a zonefile but will not expand domain names
 that are not fully qualified since it has no logic to interpret the
@@ -1120,7 +1120,7 @@ Net::DNS::ZoneFile also almost has the same functionality, it supports
 the GENERATE, INCLUDE and ORIGIN primitives. It also supports more
 classes than just the IN class. However, this module first loads the
 complete zone in memory; which may be problematic for very large
-zones. 
+zones.  It only seems to support a subset of the available RR types.
 
 All of these classes are abstractions of zonefiles, not of zones
 i.e. there is no notion of where the zonecuts are and what data is out
@@ -1138,10 +1138,10 @@ This code only supports zones in the Zone files in the IN class.
 
 =item FEATURE
 
-More sanity checking on the RDATA for each RR. In order to
-expand the domain names. The pre-processor it will only look for
-'dnames' in the RDATA and not check or validate other entries in the
-RDATA.
+More sanity checking on the RDATA for each RR. 
+
+The pre-processor it will only look for 'dnames' in the RDATA that
+need expansion and not check or validate other entries in the RDATA.
 
 
 =item FEATURE
@@ -1159,15 +1159,23 @@ CREATE_RR => 1 in the read method.
 =item TODO
 
 This code needs to know of RR types that have RDATA with dnames.
-New types will need to be implemented if they become available.
-Please inform the developer of new types.
 
-For completeness these are the ones implemented:     
+For completeness these are the RRtypes that have domain names in
+their rdata and that have been implemented.
+
 NS, CNAME, SOA, MB, PTR, MG, MR, PTR, MINFO, MX, RP, AFSDB, RT,
 SIG, NXT, SRV, DNAME, NSEC, and RRSIG
 
-=back
-=head1 COPYRIGHT
+RRtypes that do not have domain names in their RDATA will be parsed 
+transparently.
+
+New types will need to be implemented if they become available.
+Please inform the developer of new RRtypes with a domain name in them
+that has not been implemented.
+
+
+
+=back =head1 COPYRIGHT
 
 Copyright (c) 2003, 2004  RIPE NCC.  Author Olaf M. Kolkman
 <net-dns-sec@ripe.net>
@@ -1190,7 +1198,7 @@ DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
 AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-The $GENERATE primitive parser is taken from Net::DNS::ZoneFile
+The $GENERATE primitive parser is based on code in Net::DNS::ZoneFile
 
 
 =head1 SEE ALSO
