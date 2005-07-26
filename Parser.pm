@@ -1,4 +1,4 @@
-# $Id: Parser.pm,v 1.17 2004/07/21 07:52:13 olaf Exp $
+# $Id: Parser.pm 467 2005-07-19 09:31:14Z olaf $
 # Net::DNS::Zone::Parser
 #
 # O-O package that implements an RFC complient zone file (pre)parser.
@@ -11,26 +11,13 @@ package Net::DNS::Zone::Parser;
 
 use strict;
 use vars qw (
-	     
 	     $VERSION
 	     $REVISION
 	     @ISA
 	     @EXPORT_OK
 	     $ZONE_RR_REGEX
-	    );
-
-
-BEGIN{
-    require Net::DNS::RR;
-    require Exporter;
-    @ISA = qw(Exporter);
-    $VERSION = '0.002' ; 
-    $REVISION = sprintf "%d.%03d", q$Revision: 1.17 $ =~ /(\d+)/g;
-    @EXPORT_OK   = qw (
-		   processGENERATEarg
-		  );
-}
-
+	     $NAMED_CHECKZONE
+	     );
 
 
 use File::Basename;
@@ -38,6 +25,40 @@ use Carp;
 use IO::File;
 use IO::Handle;
 use Net::DNS;
+use Net::DNS::RR;
+use Shell qw (which);
+
+
+BEGIN{
+    require Exporter;
+    @ISA = qw(Exporter);
+    $VERSION = '0.01' ; 
+    $REVISION =   (qw$LastChangedRevision: 467 $)[1];
+
+    @EXPORT_OK   = qw (
+		   processGENERATEarg
+		  );
+}
+
+
+
+
+BEGIN
+{
+
+    $NAMED_CHECKZONE = eval { 
+	which("named-checkzone") || return(0);
+	open(NAMEDV, "named-checkzone -v |") || return (0);
+	my $namedv=<NAMEDV>;
+	$namedv=~ /^(\d+)\.(\d+)\./;
+
+	(($1>=9) && ($2 >= 3)) || return(0);
+
+	$namedv;
+    };
+}
+
+
 
 
 
@@ -130,11 +151,11 @@ sub read {
     my $possible_filename=shift;
     my $arghash=shift;
 
-
     my $origin=$arghash->{"ORIGIN"};
 
     my $tmpdir="/tmp/";
     $tmpdir=$arghash->{"TEMP_DIR"} if $arghash->{"TEMP_DIR"};
+
     if ($arghash->{"CREATE_RR"}){
 	$self->{create_rr}=[];
     }
@@ -149,7 +170,6 @@ sub read {
 	$self->{strip_dnskey}=1;
 
     }
-
 
     if ($arghash->{"STRIP_NSEC"}){
 	$self->{strip_nsec}=1;
@@ -181,9 +201,9 @@ sub read {
     return "READ FAILURE: ambigueous input: ". join " ", @filename ."\n" if (@filename > 1);
     $self->{'filename'}=$filename[0];
 
-    if (defined ($origin) && $origin=~/\S+/) {
+    if (defined ($origin) && $origin=~/\S+/o) {
 	# Strip spaces from begin and end of string.
-	$origin=~s/\s//g;
+	$origin=~s/\s//og;
         $self->{'_origin'}=$origin;
     }else{
 	$self->{'_origin'} = basename($filename[0]);
@@ -192,11 +212,11 @@ sub read {
 
     $self->{'IncludeRecursionDetector'}=0;
     $self->{'DefaultTTLDirectiveFound'}=0;
-    $self->{'_origin'}.="." if $self->{'_origin'}!~ /\.$/;
+    $self->{'_origin'}.="." if $self->{'_origin'}!~ /\.$/o;
 
 
     my $returnval=$self->_read($fh,$filename[0],$self->get_origin,'',0);
-    return $returnval if $returnval =~ /^READ FAILURE:/;
+    return $returnval if $returnval =~ /^READ FAILURE:/o;
 
     return 0;
 }
@@ -213,11 +233,27 @@ sub _read {
     my $lastseenTTL=shift;
     print ";; _read method called on $filename with origin $lastseenORIGIN\n" if $debug;
 
+
+
+
+    my $namedcz_return;
+    $namedcz_return=$self->_read_namedchz($fh_out,$filename,$lastseenORIGIN) if ($NAMED_CHECKZONE);
+    
+    if (defined($namedcz_return)){
+	if ($namedcz_return eq "success"){
+	    return "success";    
+	}else{
+	    # Only if the command failed to execute we'll continue with the "perl code";
+	    return("READ FAILURE: from named-checkzone: $namedcz_return") unless  $namedcz_return=~/Failed to execute/;
+	}
+    }
+
+
     $self->{"IncludeRecursionDetector"}++;     # Used for testing INCLUDE LOOPS
     my $fh_in = new IO::File;
     $fh_in->open("< $filename" ) || return "READ FAILURE: Could not open $filename\n";
 
-    $lastseenORIGIN.="." if $lastseenORIGIN !~/\.$/;
+    $lastseenORIGIN.="." if $lastseenORIGIN !~/\.$/o;
 
 
     my $TTL=0;
@@ -229,18 +265,15 @@ sub _read {
     #  all variables set and all names expanded to FQDN.
     #
     #  During the loop the APEX keyset and it's signatures are removed.
-
-
     # Check RFC1035 section 5 for details on how to handle INCLUDES
     # and how the lastseenORIGIN propagates
 
     my $buffer='';
     my $openingbracketfound=0;
-
+    
 
   READLINE: while (<$fh_in>){
-
-      next READLINE if /^\s*$/ ;     # All spaces
+      next READLINE if /^\s*$/o ;     # All spaces
       print "LINE: >". $_ if DEBUG>1;
       print "BUFF: >". $buffer."\n\n" if DEBUG>9;
       my $i=0;   # i is a counter to prevent overruns in multiline RRs
@@ -255,13 +288,13 @@ sub _read {
       # Only go through char-by-char lineparsing if there
       # are parenthesis, quotes or comments or if we are parsing multilines
       if ( $openingbracketfound ||
-	   /\(/ ||                       # Opening bracket
-	   /\;/ ||                       # Comment at end of line
-	   /\"/ ||                       # Quote
-	   /\)/                          # Closing bracket
+	   /\(/o ||                       # Opening bracket
+	   /\;/o ||                       # Comment at end of line
+	   /\"/o ||                       # Quote
+	   /\)/o                          # Closing bracket
 	 ){
 
-	LINEPARSE: while ( s/^(.)(.*)$/$2/   && $i<200){   # no more than 200
+	LINEPARSE: while ( s/^(.)(.*)$/$2/o   && $i<200){   # no more than 200
                                                            # lines for multi-
                                                            # line RRs
 	      print "LINE: ". $_ if DEBUG>10;
@@ -273,7 +306,7 @@ sub _read {
 		  if ($openingbracketfound) {
 		      next READLINE;
 		  }else{
-		      next READLINE if $buffer=~s/^\s*$// ;  # buffer only
+		      next READLINE if $buffer=~s/^\s*$//o ;  # buffer only
 		                                             # contains spaces
 		      last LINEPARSE;
 		  }
@@ -289,7 +322,7 @@ sub _read {
 		  # collect everything upto the closing quote
 		  $buffer .= '"';
 		  my $k=0;
-		CHRSTR: while (s/(.)(.*)/$2/){
+		CHRSTR: while (s/(.)(.*)/$2/o){
 		      $buffer .= $1;
 		      $k++;
 		      if ($k>256) {
@@ -302,11 +335,11 @@ sub _read {
 		      # This may not be RFC complient so we print a warning.
 		      last CHRSTR if $1 eq '"';
 		  }
-		  print "WARNING: Unmatched quotes at end of line\n" if $buffer !~ /\"$/;
+		  print "WARNING: Unmatched quotes at end of line\n" if $buffer !~ /\"$/o;
 	      }else{
 		  # Single spaces between the tokens.. we depend on this later
-		  if ($char=~/^\s+$/){
-		      $buffer.=" " unless $buffer=~/\s$/;
+		  if ($char=~/^\s+$/o){
+		      $buffer.=" " unless $buffer=~/\s$/o;
 		  }else{
 		      $buffer.=$char;
 		  }
@@ -314,22 +347,22 @@ sub _read {
 	      $i++;
 	      # Next line if we are at end of line and there is still a open bracket
 	      # not matched.
-	      next READLINE if $openingbracketfound && /^\s*$/;
+	      next READLINE if $openingbracketfound && /^\s*$/o;
 	  } # END LINEPARSE
 
 	  # LINE HAS NOW BEEN PARSED.. ALL MULTILINES ARE ON ONE LINE AND
 	  #
-	  $buffer=~s/\s*$//g; # remove possible trailing spce
+	  $buffer=~s/\s*$//go; # remove possible trailing spce
 	  $_=$buffer;
 	  $buffer='';
       }else{   # when not parsing the line char by char
-	  s/\s+/ /g;   # Remove extra spaces
-	  s/\s*$//g;   # Remove extra spaces
+	  s/\s+/ /go;   # Remove extra spaces
+	  s/\s*$//go;   # Remove extra spaces
       }
 
       print "READLINE:>>".$_."<<\n" if DEBUG >2;
 
-      if ( /^\s*\$TTL\s+(\d+)/){   #FOUND a $TTL directive
+      if ( /^\s*\$TTL\s+(\d+)/o){   #FOUND a $TTL directive
 	  $lastseenTTL=$1;
 	  $defaultTTL=$lastseenTTL if (! $defaultTTL );
 	  print ";; DEFAULT TTL found : ". $lastseenTTL ."\n" if DEBUG>1;
@@ -342,7 +375,7 @@ sub _read {
 
       # Set the current originin. This is the one from the $ORIGIN value from 
       # the zone file. It will be used to complete dnames  below.
-      if ( /^\s*\$ORIGIN\s+(\S+)\s*$/){
+      if ( /^\s*\$ORIGIN\s+(\S+)\s*$/o){
 	  $lastseenORIGIN=$1;
 	  print ";; lastseenORIGIN set to : ". $lastseenORIGIN ."\n" if DEBUG>1;
 	  next READLINE;
@@ -351,10 +384,10 @@ sub _read {
 
 
 
-      if ( /^\s*\$INCLUDE\s+(\S+)\s*(\S*)?$/i){
+      if ( /^\s*\$INCLUDE\s+(\S+)\s*(\S*)?$/io){
 	  my $newfilename=$1;
 	  $lastseenORIGIN=$2 if $2;
-	  if ($newfilename=~/\//){
+	  if ($newfilename=~/\//o){
 	      # absolute pathname
 	  }else{
 	      #relative pathname
@@ -376,12 +409,12 @@ sub _read {
 	  $lastseenTTL=$self->_read($fh_out,$newfilename,$lastseenORIGIN,$previousdname,
 		       $lastseenTTL);
 
-	  return $lastseenTTL if $lastseenTTL =~ /^READ FAILURE:/;
+	  return $lastseenTTL if $lastseenTTL =~ /^READ FAILURE:/o;
 	  next READLINE;
       }
 
       # Use the previous dname if no dname was qualified (line starts with blanks)
-      if (/^(\S+)\s+/){
+      if (/^(\S+)\s+/o){
 	  $previousdname=$1;
 	  # below is a uggly bug fix. 
 	  $previousdname=$lastseenORIGIN if ($previousdname eq '$GENERATE');
@@ -401,7 +434,7 @@ sub _read {
 	    \s+(\S+)               #The LHS
 	    \s+(\S+)               #The TYPE
 	    \s+(\S+)               #The RHS
-	   }x){
+	   }xo){
 	  print  "Range: $2-$3 " if DEBUG;
 	  print "/$5 " if DEBUG && $5;
 	  print  "LHS: $6 "
@@ -414,7 +447,7 @@ sub _read {
 	  my $LHS=$6;
 	  my $TYPE=$7;
 	  my $RHS=$8;
-	  if ($TYPE !~ /PTR|CNAME|DNAME|A|AAAA|NS/)
+	  if ($TYPE !~ /PTR|CNAME|DNAME|A|AAAA|NS/o)
 	    {
 		print "Generate only supports PTR, CNAME, DNAME, A, AAAA and NS.\n";
 		next READLINE;
@@ -432,11 +465,19 @@ sub _read {
 	  my $i=$LOW;
 	  while ($i<=$HIGH){
 
-	      my $my_generated_record= processGENERATEarg($LHS,$i,$lastseenORIGIN) .
-		" ".$lastseenTTL." IN ".$TYPE." ";
-	      if ($TYPE =~/CNAME|PTR|DNAME|NS/){
+	      my $ownername =processGENERATEarg($LHS,$i,$lastseenORIGIN);
+
+	      my $my_generated_record= $ownername ." ".$lastseenTTL." IN ".$TYPE." ";
+	      if ($TYPE =~/CNAME|PTR|DNAME|NS/o){
 		  # These types have expansion of the RDATA to FQDN
-		  $my_generated_record .=   processGENERATEarg($RHS,$i,$lastseenORIGIN);
+		  my $rdatastr= processGENERATEarg($RHS,$i,$lastseenORIGIN);
+		  $my_generated_record .=   $rdatastr;
+		  if (($TYPE =~/CNAME|DNAME/) && 
+		      ($ownername eq $rdatastr) ){
+		      $i+=$STEP;
+		      next;
+		  }
+		  
 	      }else{
 		  # A and AAAA are left alone
 		  $my_generated_record .=   processGENERATEarg($RHS,$i,"");
@@ -456,8 +497,8 @@ sub _read {
 
       }else{
 	  my $returnval= $self->_parseline($_,$lastseenORIGIN,$lastseenTTL);
-	  next READLINE if $returnval =~ /^__SKIPPED__$/;
-	  return $returnval if $returnval =~ /^READ FAILURE:/;
+	  next READLINE if $returnval =~ /^__SKIPPED__$/o;
+	  return $returnval if $returnval =~ /^READ FAILURE:/o;
 	  $_ = $returnval;
 	  print ";;    " . $_ . "\n"  if DEBUG>2;
       
@@ -517,7 +558,7 @@ sub _complete_dname
     my $self=shift;
     my $dname=shift;
     my $origin=shift;
-    if ( $dname !~ /\.$/ && $dname !~ /\\\.$/){       # Hmmmm what if a label ends in an escapped \. 
+    if ( $dname !~ /\.$/o && $dname !~ /\\\.$/o){       # Hmmmm what if a label ends in an escapped \. 
 
 	$dname .= ".".$origin;
 	# This fixes a bug, If the origin equals the root the above line
@@ -575,7 +616,7 @@ sub processGENERATEarg {
 	    my $offset=$2?$2:0;
 	    my $width=$4?$4:0;
 	    my $format=$6?$6:"d";
-	    if ($format !~ /d|o|x|X/){
+	    if ($format !~ /d|o|x|X/o){
 		die "Fatal error in parsing the format in a \$GENERATE statement.\n Should be d,o,x or X\n";
 	    }
 	    $expanded .= sprintf("%0$width$format",$i+$offset);
@@ -585,12 +626,12 @@ sub processGENERATEarg {
 
 	}
     }
-    $expanded =~s/\\\$/\$/g;  #finally substitute '$' for the escaped \$
+    $expanded =~s/\\\$/\$/og;  #finally substitute '$' for the escaped \$
     
     # Only expand to FQDN if the last char is a "." and if the
     # the $origin argument is not empty.
 
-    $expanded .= ".". $origin if $expanded !~ /\.$/ && $origin ne "" ;
+    $expanded .= ".". $origin if $expanded !~ /\.$/o && $origin ne "" ;
 
     return $expanded;
 }
@@ -629,7 +670,7 @@ sub _parseline {
 
     my $dname=$1;
 
-    s/^\s*(\S+) / /;  # remove the dname to put it back fully qualified
+    s/^\s*(\S+) / /o;  # remove the dname to put it back fully qualified
                       # If there is a match it could still be matching the
                       # string 0, so just testing on $1 will now work....
     if ( $1 || $1 eq "0" ) {
@@ -645,7 +686,7 @@ sub _parseline {
 
 
     # See if there is a TTL value, if not insert one
-    if (/^\S+ (\d+)/) {
+    if (/^\S+ (\d+)/o) {
 	print ";;    TTL   : " . $1. "\n" if  $debug>2 ;
 	$ttl=$1;
     }else {
@@ -667,7 +708,7 @@ sub _parseline {
     # See if there is the CLASS is defined, if not insert one.
     if(! /^\S+ \d+ ($classes)/){   
 	#insert IN
-	s/^(\S+ \d+ )(.*)$/$1IN $2/;
+	s/^(\S+ \d+ )(.*)$/$1IN $2/o;
     }
     # We have everything specified.. We now get the RTYPE AND RDATA...
     /^\S+ \d+ ($classes) (\S+) (.*)$/;
@@ -711,7 +752,7 @@ sub _parseline {
     }elsif ( uc $rtype eq "SOA" ){
 	#	"SOA"	RFC 1035, Section 3.3.13	
 	# first two strings in the SOA rdata are dnames
-	$rdata=~/(\S+)\s+(\S+)\s+(\d+)\s+(.*)$/;
+	$rdata=~/(\S+)\s+(\S+)\s+(\d+)\s+(.*)$/o;
 	return  "READ FAILURE: Soa serial not found in\n $_\n" if ( ! $3 && $3 ne "0" );
 
 	my $soaserial=$3;
@@ -750,7 +791,7 @@ sub _parseline {
 	#	"HINFO"	RFC 1035, Section 3.3.2 
     }elsif( uc $rtype eq "MINFO"){
 	#	"MINFO"	RFC 1035, Section 3.3.7
-	$rdata=~/(\S+) (\S+)$/;
+	$rdata=~/(\S+) (\S+)$/o;
 	$_=$prefix.$self->_complete_dname($1,$lastseenORIGIN).
 	  " " . $self->_complete_dname($2,$lastseenORIGIN);
     }elsif( uc $rtype eq "MX"){
@@ -760,7 +801,7 @@ sub _parseline {
 	#	"TXT"	RFC 1035, Section 3.3.14
     }elsif( uc $rtype eq "RP"){
 	#	"RP"	RFC 1183, Section 2.2
-	$rdata=~/(\S+) (\S+)$/;
+	$rdata=~/(\S+) (\S+)$/o;
 	$_=$prefix.$self->_complete_dname($1,$lastseenORIGIN).
 	  " " . $self->_complete_dname($2,$lastseenORIGIN);
     }elsif( uc $rtype eq "AFSDB"){
@@ -779,14 +820,14 @@ sub _parseline {
 	return "__SKIPPED__" if $self->{'strip_old'};
 	my ($typecovered, $algoritm,
             $type, $orgttl, $sigexpiration,
-            $siginceptation, $keytag,$signame,$sig) = 
-	      $rdata=~/^\s*(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)/;
-	$_ = $prefix." $typecovered $algoritm $type $orgttl $sigexpiration $siginceptation $keytag ".
+            $siginception, $keytag,$signame,$sig) = 
+	      $rdata=~/^\s*(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)/o;
+	$_ = $prefix." $typecovered $algoritm $type $orgttl $sigexpiration $siginception $keytag ".
 	  $self->_complete_dname($signame,$lastseenORIGIN)." $sig";
 
     }elsif(uc $rtype eq "PX"){
 	#	"PX"	RFC 2163,
-	my ($preference,$map822,$mapx400)= $rdata=~/(\d+) (\S+) (\S+)$/;
+	my ($preference,$map822,$mapx400)= $rdata=~/(\d+) (\S+) (\S+)$/o;
 	$_=$prefix." ".$preference." ".
 	    $self->_complete_dname($map822,$lastseenORIGIN).
 	    " ".
@@ -802,7 +843,7 @@ sub _parseline {
     }elsif( uc $rtype eq "NXT"){
 	return "__SKIPPED__" if $self->{'strip_old'};
 	#	"NXT"	RFC 2535
-	$rdata=~/(\S+) (.*)$/;
+	$rdata=~/(\S+) (.*)$/o;
 	$_=$prefix.$self->_complete_dname($1,$lastseenORIGIN).
 	  " " . $2;
 	
@@ -819,7 +860,7 @@ sub _parseline {
 
     }elsif( uc $rtype eq "NAPTR"){
 	#	"NAPTR"	RFC 2168, 2915
-	$rdata=~/(.*) (\S+)$/;
+	$rdata=~/(.*) (\S+)$/o;
 	$_=$prefix.$1." ".$self->_complete_dname($2,$lastseenORIGIN);
     }elsif( uc $rtype eq "KX"){
 	#	"KX"	RFC 2230
@@ -842,7 +883,7 @@ sub _parseline {
     }elsif( uc $rtype eq "NSEC"){
 	#	"NSEC"
 	return "__SKIPPED__" if $self->{'strip_nsec'};
-	$rdata=~/(\S+) (.*)$/;
+	$rdata=~/(\S+) (.*)$/o;
 	$_=$prefix.$self->_complete_dname($1,$lastseenORIGIN).
 	  " " . $2;
     }elsif( uc $rtype eq "DNSKEY"){
@@ -854,21 +895,111 @@ sub _parseline {
 	return "__SKIPPED__" if $self->{'strip_rrsig'};
         my ($typecovered, $algoritm,
             $type, $orgttl, $sigexpiration,
-            $siginceptation, $keytag,$signame,$sig) = 
-	      $rdata=~/^\s*(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)/;
+            $siginception, $keytag,$signame,$sig) = 
+	      $rdata=~/^\s*(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)/o;
 	return "__SKIPPED__" if $self->{'strip_dnskey'} && uc($typecovered) eq "DNSKEY";
-	$_ = $prefix." $typecovered $algoritm $type $orgttl $sigexpiration $siginceptation $keytag ".
+	return "__SKIPPED__" if $self->{'strip_nsec'} && uc($typecovered) eq "NSEC";
+	return "__SKIPPED__" if $self->{'bump_soa'} && uc($typecovered) eq "SOA";
+	$_ = $prefix." $typecovered $algoritm $type $orgttl $sigexpiration $siginception $keytag ".
 	  $self->_complete_dname($signame,$lastseenORIGIN)." $sig";
 
 
 	
-    }elsif( uc $rtype=~/TYPE\d+/){
+    }elsif( uc $rtype=~/TYPE\d+/o){
 	# Unknown RR.
     }
 
 return $_;
 
 }
+
+
+
+
+
+# Use named-checkzone -D to do the processin;
+
+sub _read_namedchz{
+    my  $self=shift;
+    my $fh_out=shift;
+    my $filename=shift;
+    my $origin=shift;
+    $origin=~ s/\.$//;
+    print ";; _read_namedchz: $filename $origin\n" if $debug;
+    my $cmd="named-checkzone -D $origin $filename |";
+    open(DUMP,$cmd)|| return ("Could not execute $cmd") ;   # This should cause classic parsing
+    my $loadzone_result="";
+
+
+  PARSELOAD: while (<DUMP>) {
+      if (/^zone $origin\/IN: (.*)/){
+	  $loadzone_result=$1;
+	  last PARSELOAD;
+      }
+      (print ";; ".$_) && next;
+      
+  }
+    
+    
+    unless( $loadzone_result=~/^loaded serial \d+( \(signed\))?$/){
+	return $loadzone_result;
+    }
+
+
+    my $ProcessedApex;
+    
+  CONTENT: while (<DUMP>) {
+	# and the zone is nicely cannonicalized by named-checkzone -B
+	last if  /^OK$/;
+	
+	if (/^\S+\s+\d+\s+IN\s+(SOA|RRSIG\s+\w+|DNSKEY|NSEC|SOA|NXT|SIG)\s+/o){
+	    my $type=$1;
+	    $self->{strip_dnskey}&&  ($type eq "DNSKEY")&& next CONTENT;
+	    # Also strip the sig over DNSKEY if we are stripping DNSKEYS
+	    if ($type =~ /RRSIG\s+(\w+)/){
+		$self->{strip_rrsig} && next CONTENT;
+		$self->{strip_dnskey} && ($1 eq "DNSKEY") && next CONTENT;
+		$self->{strip_nsec} && ($1 eq "NSEC") && next CONTENT;
+		$self->{bump_soa} && ($1 eq "SOA") && next CONTENT;
+	    }
+
+	    $self->{strip_rrsig}&&  ($type eq "RRSIG")&& next CONTENT;
+	    $self->{strip_nsec}&&  ($type eq "NSEC")&& next CONTENT;
+	    $self->{strip_old} && 
+		(($type eq "NXT") || ($type eq "SIG"))&& 
+		next CONTENT;
+	    if ($self->{bump_soa} && ($type eq "SOA")){
+		my $soa=Net::DNS::RR->new($_);
+		$soa->serial($soa->serial()+1);
+		$_=$soa->string ."\n";  # The newline is FITAL, the next record
+                                        # would otherwise disapear behind a 
+                                        # comment.
+	    }
+	}
+	
+
+	print $fh_out $_;
+	if (defined $self->{"create_rr"}){
+	    my $rr=Net::DNS::RR->new($_);
+	    push @{$self->{"create_rr"}},$rr;
+	}
+	
+	
+    }
+    
+    print $fh_out "\n"; # Make sure file ends with newline
+    close(DUMP);
+    return ("success");
+
+
+}
+
+sub DESTROY {
+
+    close(DUMP);
+}
+
+
 
 1;
 
@@ -999,8 +1130,8 @@ i.e. stripped from the output
 
 =item STRIP_DNSKEY 
 
-if the value evaluates to TRUE all DNSKEY RRs in the zone are ignored
-i.e. stripped from the output
+if the value evaluates to TRUE all DNSKEY RRs and their related RRSIGs
+in the zone are ignored i.e. stripped from the output
 
 =item  STRIP_SEC 
 

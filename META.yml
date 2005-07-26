@@ -1,14 +1,14 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         Net-DNS-Zone-Parser
-version:      0.002
+version:      0.01
 version_from: Parser.pm
 installdirs:  site
 requires:
     File::Basename:                0
     IO::File:                      0
-    Net::DNS:                      0.46
-    Net::DNS::SEC:                 0.11
+    Net::DNS:                      0.52
+    Net::DNS::SEC:                 0.1202
 
 distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.21
+generated_by: ExtUtils::MakeMaker version 6.17

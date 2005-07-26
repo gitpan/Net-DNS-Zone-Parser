@@ -1,6 +1,6 @@
 #!/usr/bin/perl  -sw 
 # Test script for loading parser and zonemodules
-# $Id: 00-loader.t,v 1.1 2004/03/09 11:44:29 olaf Exp $
+# $Id: 00-loader.t 454 2005-07-06 13:38:31Z olaf $
 # 
 # Called in a fashion simmilar to:
 # /usr/bin/perl -Iblib/arch -Iblib/lib -I/usr/lib/perl5/5.6.1/i386-freebsd \
@@ -27,3 +27,9 @@ BEGIN {use_ok('Net::DNS::Zone::Parser', qw(processGENERATEarg));
 require_ok('Net::DNS::Zone::Parser');
 
 
+diag("\nThese tests were ran with:\n");
+diag("Net::DNS::VERSION:               ".$Net::DNS::VERSION);
+diag("Net::DNS::SEC::VERSION:          ".$Net::DNS::SEC::VERSION);
+diag("Net::DNS::Zone::Parser::VERSION: ".$Net::DNS::Zone::Parser::VERSION);
+diag("Net::DNS::Zone::Parser::REVISION: ".$Net::DNS::Zone::Parser::REVISION);
+diag("Net::DNS::Zone::Parser::NAMED_CHECKZONE: ".$Net::DNS::Zone::Parser::NAMED_CHECKZONE) if $Net::DNS::Zone::Parser::NAMED_CHECKZONE;

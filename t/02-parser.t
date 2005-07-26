@@ -1,6 +1,6 @@
 #!/usr/bin/perl  -sw 
 # Test script for Zone functionalty
-# $Id: 02-parser.t,v 1.5 2004/06/23 10:13:11 olaf Exp $
+# $Id: 02-parser.t 454 2005-07-06 13:38:31Z olaf $
 # 
 # Called in a fashion simmilar to:
 # /usr/bin/perl -Iblib/arch -Iblib/lib -I/usr/lib/perl5/5.6.1/i386-freebsd \

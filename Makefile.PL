@@ -8,8 +8,8 @@ WriteMakefile(
     'dist'         => { COMPRESS => 'gzip', SUFFIX => 'gz' },
     'ABSTRACT'     => 'Perl DNS Zone module',
     'PREREQ_PM'    => {
-		       Net::DNS       => 0.46,
-		       Net::DNS::SEC  => 0.11,
+		       Net::DNS       => 0.52,
+		       Net::DNS::SEC  => 0.1202,
 		       IO::File   =>  0.0,
 		       File::Basename => 0.0,
 			},
@@ -21,3 +21,23 @@ WriteMakefile(
 
 
 );
+
+package MY;
+
+sub postamble {
+    my $content;
+
+    $content.='
+test_cover : pure_all
+	cover -delete
+	HARNESS_PERL_SWITCHES=-MDevel::Cover $(MAKE) test
+	cover
+
+
+';
+#    print "$content";
+    return $content;
+
+}
+
+
