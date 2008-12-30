@@ -1,6 +1,6 @@
 #!/usr/bin/perl  -sw 
 # Test script for Zone functionalty
-# $Id: 05-types.t 454 2005-07-06 13:38:31Z olaf $
+# $Id: 05-types.t 780 2008-12-30 17:23:57Z olaf $
 # 
 # Called in a fashion simmilar to:
 # /usr/bin/perl -Iblib/arch -Iblib/lib -I/usr/lib/perl5/5.6.1/i386-freebsd \
@@ -171,9 +171,7 @@ my @rrs =  (
 	name         => 'example.com',
 
         type  => 'NSEC',
-	nxtdname => "aaaa.example.com.",  # Note that in the zonefile we write
-	                                 # AAAA but the NSEC read_string will
-	                                 # cast to lowercase.
+	nxtdname => "AAAA.example.com.",  
 	typelist =>  "A AAAA LOC",
     },
 
@@ -184,7 +182,7 @@ my @rrs =  (
 
 
 my $runs=1;
-$runs=2 if $Net::DNS::Zone::Parser::NAMED_CHECKZONE;
+$runs=2 if $Net::DNS::Zone::Parser::NAMED_COMPILEZONE;
 plan tests => $runs*(2+(scalar @rrs));
 
 use Net::DNS::Zone::Parser;
@@ -192,20 +190,20 @@ use Net::DNS::SEC;
 
 
 use Shell qw (which);
-my $named_checkzone = which("named-checkzone");
-$named_checkzone =~ s/\s+$//;
-my $nocheckzone=0;
+my $named_compilezone = which("named-compilezone");
+$named_compilezone =~ s/\s+$//;
+my $nocompilezone=0;
 
-if ( !( -x $named_checkzone )){
-    diag "Some additional tests are performed if named-checkzone is in your path.";
-    $nocheckzone=1;
+if ( !( -x $named_compilezone )){
+    diag "Some additional tests are performed if named-compilezone is in your path.";
+    $nocompilezone=1;
 }
 
 
 my $run=0;
 
 while ($run < $runs) {
-    $Net::DNS::Zone::Parser::NAMED_CHECKZONE=0  if $run==1;
+    $Net::DNS::Zone::Parser::NAMED_COMPILEZONE=0  if $run==1;
     $run++;
 
     my $parser;
@@ -223,7 +221,7 @@ while ($run < $runs) {
     
     $parser->read("t/test.types.db",{ ORIGIN=> "example.com",
 				      CREATE_RR => 1});
-    
+
     
     my $array=$parser->get_array();
     is (  scalar @{$array}, 19 , "all RRs read from zonefile");
@@ -251,8 +249,8 @@ while ($run < $runs) {
 #    $rr->print;
 #    $parsed_rr->print;
 	
-	is ($parsed_rr->string,			
-	    $rr->string, "dname expansion in ". $rr->type );
+	is (lc($parsed_rr->string),			
+	    lc($rr->string), "dname expansion in ". $rr->type );
 	
     }					
 }

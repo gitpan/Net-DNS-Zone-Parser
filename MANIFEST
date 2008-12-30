@@ -1,7 +1,6 @@
 CHANGES
 Makefile.PL
 MANIFEST			This list of files
-META.yml
 Parser.pm
 t/00-loader.t
 t/02-parser.t
@@ -9,6 +8,7 @@ t/03-failures.t
 t/04-generate.t
 t/05-types.t
 t/06-strip.t
+t/root
 t/test.db
 t/test.db.3
 t/test.db.7
@@ -20,3 +20,4 @@ t/test.db.recurse1
 t/test.db.recurse2
 t/test.types.db
 TODO
+META.yml                                 Module meta-data (added by MakeMaker)

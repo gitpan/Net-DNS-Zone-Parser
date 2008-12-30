@@ -1,6 +1,6 @@
 #!/usr/bin/perl  -sw 
 # Test script for Zone functionalty
-# $Id: 03-failures.t 454 2005-07-06 13:38:31Z olaf $
+# $Id: 03-failures.t 726 2008-09-16 10:33:27Z olaf $
 # 
 # Called in a fashion simmilar to:
 # /usr/bin/perl -Iblib/arch -Iblib/lib -I/usr/lib/perl5/5.6.1/i386-freebsd \
@@ -33,16 +33,16 @@ while ($run<$runs){
     ok( defined($parser), "Parser object creation");                        
     
     like( $parser->read("t/test.db.recurse1",{ ORIGIN=> "foo.test"}),
-	  "/^READ FAILURE: (Nested INCLUDE more than 20 levels deep|from named-checkzone: loading master file t/test.db.recurse1: too many open files)/",
+	  "/^READ FAILURE:.* too many open files/",
 	  "Nested INCLUDE error returned");
     
     
     like  ($parser->read("t/test.db.brokenRR",{ ORIGIN=> "foo.test"}),
-	   "/^READ FAILURE: (\"foo.test. 3600 IN NAASS bla.foo\"|from named-checkzone: loading master file t/test.db.brokenRR: unknown class/type)/"
+	   "/^READ FAILURE:.* unknown class/type/"
 	   ,"Regular Expression of RR fails");
     
     
     like ($parser->read("t/test.db.brokenbrackets",{ ORIGIN=> "foo.test"}),
-	  '/^READ FAILURE: (Multiple enclosing opening brackets|from named-checkzone: loading master file t/test.db.brokenbrackets: unbalanced parentheses)/'
+	  '/^READ FAILURE:.*unbalanced parentheses/'
 	  ,"Multiple opening brackets error");
 }

@@ -1,4 +1,4 @@
-# $Id: Parser.pm 467 2005-07-19 09:31:14Z olaf $
+# $Id: Parser.pm 788 2008-12-30 17:49:48Z olaf $
 # Net::DNS::Zone::Parser
 #
 # O-O package that implements an RFC complient zone file (pre)parser.
@@ -16,12 +16,13 @@ use vars qw (
 	     @ISA
 	     @EXPORT_OK
 	     $ZONE_RR_REGEX
-	     $NAMED_CHECKZONE
+	     $NAMED_COMPILEZONE
 	     );
 
 
 use File::Basename;
 use Carp;
+use File::Temp;
 use IO::File;
 use IO::Handle;
 use Net::DNS;
@@ -32,8 +33,8 @@ use Shell qw (which);
 BEGIN{
     require Exporter;
     @ISA = qw(Exporter);
-    $VERSION = '0.01' ; 
-    $REVISION =   (qw$LastChangedRevision: 467 $)[1];
+    $VERSION = '0.02' ; 
+    $REVISION =   (qw$LastChangedRevision: 788 $)[1];
 
     @EXPORT_OK   = qw (
 		   processGENERATEarg
@@ -46,13 +47,13 @@ BEGIN{
 BEGIN
 {
 
-    $NAMED_CHECKZONE = eval { 
-	which("named-checkzone") || return(0);
-	open(NAMEDV, "named-checkzone -v |") || return (0);
+    $NAMED_COMPILEZONE = eval { 
+	which("named-compilezone") || return(0);
+	open(NAMEDV, "named-compilezone -v |") || return (0);
 	my $namedv=<NAMEDV>;
 	$namedv=~ /^(\d+)\.(\d+)\./;
 
-	(($1>=9) && ($2 >= 3)) || return(0);
+	(($1>=9) && ($2 >= 4)) || return(0);
 
 	$namedv;
     };
@@ -126,6 +127,7 @@ sub new
     bless ($self,$class);
 
     if ($argument){
+	    print "new called with an argument\n" if $debug;
 	if ($argument->isa("IO::Handle")){
 	    $self->{"fh"}=$argument;
 	}else{
@@ -152,9 +154,6 @@ sub read {
     my $arghash=shift;
 
     my $origin=$arghash->{"ORIGIN"};
-
-    my $tmpdir="/tmp/";
-    $tmpdir=$arghash->{"TEMP_DIR"} if $arghash->{"TEMP_DIR"};
 
     if ($arghash->{"CREATE_RR"}){
 	$self->{create_rr}=[];
@@ -193,7 +192,7 @@ sub read {
     }
 
 
-    return "READ FAILURE: $tmpdir does not exist" if (! -d $tmpdir);
+
 
     my $fh=$self->{"fh"};
 
@@ -213,8 +212,6 @@ sub read {
     $self->{'IncludeRecursionDetector'}=0;
     $self->{'DefaultTTLDirectiveFound'}=0;
     $self->{'_origin'}.="." if $self->{'_origin'}!~ /\.$/o;
-
-
     my $returnval=$self->_read($fh,$filename[0],$self->get_origin,'',0);
     return $returnval if $returnval =~ /^READ FAILURE:/o;
 
@@ -234,17 +231,15 @@ sub _read {
     print ";; _read method called on $filename with origin $lastseenORIGIN\n" if $debug;
 
 
-
-
-    my $namedcz_return;
-    $namedcz_return=$self->_read_namedchz($fh_out,$filename,$lastseenORIGIN) if ($NAMED_CHECKZONE);
-    
-    if (defined($namedcz_return)){
-	if ($namedcz_return eq "success"){
+    my $namedcomp_return;
+    $namedcomp_return=$self->_read_namedcomp($fh_out,$filename,$lastseenORIGIN) if ($NAMED_COMPILEZONE);
+    print "namedcomp_return returned:  $namedcomp_return\n" if $debug;
+    if (defined($namedcomp_return)){
+	if ($namedcomp_return eq "success"){
 	    return "success";    
 	}else{
 	    # Only if the command failed to execute we'll continue with the "perl code";
-	    return("READ FAILURE: from named-checkzone: $namedcz_return") unless  $namedcz_return=~/Failed to execute/;
+	    return("READ FAILURE: from named-compilezone: $namedcomp_return") unless  $namedcomp_return=~/Failed to execute/;
 	}
     }
 
@@ -917,41 +912,49 @@ return $_;
 
 
 
-# Use named-checkzone -D to do the processin;
+# Use named-compilezone -D to do the processin;
 
-sub _read_namedchz{
+sub _read_namedcomp{
     my  $self=shift;
     my $fh_out=shift;
     my $filename=shift;
     my $origin=shift;
-    $origin=~ s/\.$//;
-    print ";; _read_namedchz: $filename $origin\n" if $debug;
-    my $cmd="named-checkzone -D $origin $filename |";
-    open(DUMP,$cmd)|| return ("Could not execute $cmd") ;   # This should cause classic parsing
+    my $tmpfh = File::Temp->new();
+    my $tmpfname = $tmpfh->filename;
+    
+    print ";; Tempfilename: $tmpfname\n" if $debug;
+
+    print ";; _read_namedcomp: $filename $origin\n" if $debug;
+    my $cmd="named-compilezone  -i none -o $tmpfname $origin $filename";
+    print ";; Running: ".join(" ", $cmd)."\n" if $debug;
+
+    my @result=`$cmd`; 
+    if ($debug){
+	    foreach my $i (@result){
+		    print ";;; $i\n";
+	    }
+    }
+    my $lastresult=pop( @result); 
+    
+   
+    if ( $? == -1 ) { 
+	    return "command failed: $!\n" 
+    }elsif($lastresult =~/failed/){
+	    return $lastresult;
+    }
+
+    
+    open(DUMP,$tmpfname)|| return ("Could not execute ". join(" ", $cmd)) ;   # This should cause classic parsing
     my $loadzone_result="";
 
 
-  PARSELOAD: while (<DUMP>) {
-      if (/^zone $origin\/IN: (.*)/){
-	  $loadzone_result=$1;
-	  last PARSELOAD;
-      }
-      (print ";; ".$_) && next;
-      
-  }
+    $origin=~ s/\.$// unless ($origin eq ".") ;
     
-    
-    unless( $loadzone_result=~/^loaded serial \d+( \(signed\))?$/){
-	return $loadzone_result;
-    }
 
 
     my $ProcessedApex;
     
   CONTENT: while (<DUMP>) {
-	# and the zone is nicely cannonicalized by named-checkzone -B
-	last if  /^OK$/;
-	
 	if (/^\S+\s+\d+\s+IN\s+(SOA|RRSIG\s+\w+|DNSKEY|NSEC|SOA|NXT|SIG)\s+/o){
 	    my $type=$1;
 	    $self->{strip_dnskey}&&  ($type eq "DNSKEY")&& next CONTENT;
@@ -977,7 +980,6 @@ sub _read_namedchz{
 	    }
 	}
 	
-
 	print $fh_out $_;
 	if (defined $self->{"create_rr"}){
 	    my $rr=Net::DNS::RR->new($_);
@@ -1082,11 +1084,19 @@ one that points to a temporary file.
 		{ ORIGIN => "example.db",
 		  };
 
-    @lines=$parser->read("/tmp/foo.db",
+
+# alternatively
+
+    $returnval=$parser->read("/tmp/foo.db",
 		{ ORIGIN => "example.db",
                   CREATE_RR => 1,
 		  STRIP_SEC => 1,
 		  };
+    if ($returnval) {
+         die $returnval;
+    }else{
+         $RRarrayref=$parser->get_array();
+    }
 
 'read' reads a zonefile from disk to 'pre-processes' it.  The first
 argument is a path to the zonefile. The second parameter is a hash

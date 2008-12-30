@@ -4,13 +4,14 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
     'NAME'	=> 'Net::DNS::Zone::Parser',
     'VERSION_FROM' => 'Parser.pm', # finds $VERSION
-    'AUTHOR'  => 'Olaf M. Kolkman (RIPE NCC)',
+    'AUTHOR'  => 'Olaf M. Kolkman (NLnet Labs)',
     'dist'         => { COMPRESS => 'gzip', SUFFIX => 'gz' },
     'ABSTRACT'     => 'Perl DNS Zone module',
     'PREREQ_PM'    => {
-		       Net::DNS       => 0.52,
-		       Net::DNS::SEC  => 0.1202,
+		       Net::DNS       => 0.64,
+		       Net::DNS::SEC  => 0.15,
 		       IO::File   =>  0.0,
+		       File::Temp => 0.0,
 		       File::Basename => 0.0,
 			},
     'PM' => { 

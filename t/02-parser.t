@@ -1,6 +1,6 @@
 #!/usr/bin/perl  -sw 
 # Test script for Zone functionalty
-# $Id: 02-parser.t 454 2005-07-06 13:38:31Z olaf $
+# $Id: 02-parser.t 726 2008-09-16 10:33:27Z olaf $
 # 
 # Called in a fashion simmilar to:
 # /usr/bin/perl -Iblib/arch -Iblib/lib -I/usr/lib/perl5/5.6.1/i386-freebsd \
@@ -12,7 +12,7 @@
 
 ######################### We start with some black magic to print on failure.
 
-use Test::More tests=>8;
+use Test::More tests=>9;
 use strict;
 
 
@@ -28,26 +28,26 @@ BEGIN {use_ok('Net::DNS::Zone::Parser');
 
 
 use Shell qw (which);
-my $named_checkzone = which("named-checkzone");
-$named_checkzone =~ s/\s+$//;
+my $named_compilezone = which("named-compilezone");
+$named_compilezone =~ s/\s+$//;
 
 
 
 
-my $nocheckzone=0;
+my $nocompilezone=0;
 
 
-if ( !( -x $named_checkzone )){
-    diag "Some additional tests are performed if named-checkzone is in your path.";
-    $nocheckzone=1;
+if ( !( -x $named_compilezone )){
+    diag "Some additional tests are performed if named-compilezone is in your path.";
+    $nocompilezone=1;
 }
 
-if (! $nocheckzone ){
-    my $named_checkzone_version=`$named_checkzone -v`;
-    my($branch,$major,$minor,$other)= $named_checkzone_version=~/(\d+)\.(\d+)\.(\d+)(.*)/;
-    if ($branch<9 || ($branch==9 && $major<3) ){
-	diag ("This version of named-checkonf does not know about DNSSEC, some tests will be skipped");
-	$nocheckzone=1;
+if (! $nocompilezone ){
+    my $named_compilezone_version=`$named_compilezone -v`;
+    my($branch,$major,$minor,$other)= $named_compilezone_version=~/(\d+)\.(\d+)\.(\d+)(.*)/;
+    if ($branch<9 || ($branch==9 && $major<4) ){
+	diag ("This version of named-compilezone does not know about DNSSEC, some tests will be skipped");
+	$nocompilezone=1;
     }
 }
 
@@ -62,7 +62,7 @@ if (defined $fh){
 }
     
 
-ok( defined($parser), "Parser object creation");                        # test 2
+ok( defined($parser), "Parser object creation");                        # test 3
 
 
 $parser->read("t/test.db",{ ORIGIN=> "foo.test",
@@ -106,28 +106,40 @@ foreach my $rr (@{$array}){
 
 
 
-if (! $nocheckzone ){
+if (! $nocompilezone ){
 
-    open(VERSION,"$named_checkzone -v|");
+    open(VERSION,"$named_compilezone -v|");
     $_=<VERSION>;
     chop;
     /^(\d+)\.(\d+)\.(\d+)/;
     my ($release,$major,$minor)=($1,$2,$3);
-    $nocheckzone=$_ unless ($release >= 9 && $major >= 3 && $minor>= 0); 	
+    $nocompilezone=$_ unless ($release >= 9 && $major >= 3 && $minor>= 0); 	
 
 }
 
 
 SKIP: {
-  skip "No suitable named-checkzone ($nocheckzone) found on the system", 
+  skip "No suitable named-compilezone ($nocompilezone) found on the system", 
     1 if 
-      $nocheckzone || ! defined ($fh);
-  
-  system($named_checkzone ,"foo.test","t/TMP_ZONE");
-    is ($?,0,"named_checkzone checked the zone");
+      $nocompilezone || ! defined ($fh);
+    require File::Temp;
+    my $tmpfh = File::Temp->new();
+    my $tmpfname = $tmpfh->filename;
+
+  system($named_compilezone ,"-q","-i","none","-o",$tmpfname,"foo.test","t/TMP_ZONE");
+    is ($?,0,"named_compilezone checked the zone");
 };  #  end SKIP
 
 
 
 
+
+
+
+$parser->read("t/root",{ ORIGIN=> ".",
+				     CREATE_RR => 1});
+
+
+$array=$parser->get_array();
+is (  scalar @{$array}, 2509 , "2509 RRs read from zonefile");
 
